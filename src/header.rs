@@ -32,8 +32,12 @@ pub enum HeaderMode {
     Complete,
 
     /// Only metadata that is directly relevant to the identity of a file will
-    /// be included. In particular, ownership and mod/access times are excluded.
+    /// be included. In particular, `uid`, `gid`, and `mtime` will be set to `0`,
+    /// and the file mode will be normalized to `0644` or `0755`.
     Deterministic,
+
+    /// Preserve mod/access times, but normalize other fields like `Deterministic`
+    PreserveTimes,
 
     #[doc(hidden)]
     __Nonexhaustive,
@@ -733,8 +737,12 @@ impl Header {
                 self.set_gid(meta.gid() as u64);
                 self.set_mode(meta.mode() as u32);
             }
-            HeaderMode::Deterministic => {
-                self.set_mtime(0);
+            HeaderMode::Deterministic | HeaderMode::PreserveTimes => {
+                if mode == HeaderMode::PreserveTimes {
+                    self.set_mtime(meta.mtime() as u64);
+                } else {
+                    self.set_mtime(0);
+                }
                 self.set_uid(0);
                 self.set_gid(0);
 
@@ -799,10 +807,15 @@ impl Header {
                 };
                 self.set_mode(fs_mode);
             }
-            HeaderMode::Deterministic => {
+            HeaderMode::Deterministic | HeaderMode::PreserveTimes => {
                 self.set_uid(0);
                 self.set_gid(0);
-                self.set_mtime(0);
+                if mode == HeaderMode::PreserveTimes {
+                    let mtime = (meta.last_write_time() / (1_000_000_000 / 100)) - 11644473600;
+                    self.set_mtime(mtime);
+                } else {
+                    self.set_mtime(0);
+                }
                 let fs_mode = if meta.is_dir() { 0o755 } else { 0o644 };
                 self.set_mode(fs_mode);
             }
